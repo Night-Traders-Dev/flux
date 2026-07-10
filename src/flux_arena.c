@@ -127,8 +127,44 @@ size_t flux_arena_used(flux_arena *a)
 }
 
 /*===========================================================================
- * Type system implementation
- *===========================================================================*/
+  * Vector/grow helper - arena-backed array with growth capability
+  *===========================================================================*/
+bool flux_vec_grow(
+    flux_arena *arena,
+    void **items,
+    size_t *capacity,
+    size_t count,
+    size_t element_size,
+    size_t minimum_capacity)
+{
+    if (!arena || !items || !capacity) return false;
+    
+    size_t new_capacity = *capacity ? *capacity * 2 : minimum_capacity;
+    if (new_capacity < minimum_capacity) {
+        new_capacity = minimum_capacity;
+    }
+    
+    if (new_capacity > SIZE_MAX / element_size) return false;
+    size_t new_size = new_capacity * element_size;
+    
+    void *new_items = flux_arena_alloc(arena, new_size);
+    if (!new_items) return false;
+    
+    if (*items && count > 0) {
+        if (count > *capacity) count = *capacity;
+        if (count > 0) {
+            memcpy(new_items, *items, count * element_size);
+        }
+    }
+    
+    *items = new_items;
+    *capacity = new_capacity;
+    return true;
+}
+
+/*===========================================================================
+  * Type system implementation
+  *===========================================================================*/
 flux_type flux_type_scalar(int bits, flux_sign sign, int is_float)
 {
     flux_type t;

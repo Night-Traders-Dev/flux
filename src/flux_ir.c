@@ -228,7 +228,12 @@ static int parse_module_from_json(json_value *jmod, flux_module *mod, flux_error
 {
     flux_arena *arena = mod->arena;
 
-    mod->name = flux_arena_strdup(arena, json_as_string(json_object_get(jmod, "name")));
+    const char *name = json_as_string(json_object_get(jmod, "name"));
+    if (name) {
+        mod->name = flux_arena_strdup(arena, name);
+    } else {
+        mod->name = flux_arena_strdup(arena, "unnamed");
+    }
     const char *ver = json_as_string(json_object_get(jmod, "version"));
     if (ver) mod->version = flux_arena_strdup(arena, ver);
 

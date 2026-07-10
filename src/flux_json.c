@@ -141,7 +141,7 @@ char* json_parse_string(json_parser *p)
     }
     result[i] = '\0';
     p->pos++; /* skip closing quote */
-    p->column += (int)(p->pos - start) + 2;
+    p->column += (int)(p->pos - start);
     return result;
 }
 
@@ -193,14 +193,16 @@ json_value* json_parse_array(json_parser *p)
     }
 
     /* Count elements */
-    int cap = 64;
+    size_t cap = 64;
     v->u.array.items = (json_value**)flux_arena_alloc(p->arena, cap * sizeof(json_value*));
     if (!v->u.array.items) return NULL;
 
     while (1) {
         if (v->u.array.count >= cap) {
-            /* Exceeded capacity, stop reading more elements */
-            break;
+            if (!flux_vec_grow(p->arena, (void**)&v->u.array.items, &cap, v->u.array.count, sizeof(json_value*), 64)) {
+                json_error(p, "out of memory");
+                return NULL;
+            }
         }
         json_value *elem = json_parse_value(p);
         if (!elem) return NULL;
@@ -229,14 +231,16 @@ json_value* json_parse_object(json_parser *p)
         return v;
     }
 
-    int cap = 64;
+    size_t cap = 64;
     v->u.object.pairs = (json_pair*)flux_arena_alloc(p->arena, cap * sizeof(json_pair));
     if (!v->u.object.pairs) return NULL;
 
     while (1) {
         if (v->u.object.count >= cap) {
-            /* Exceeded capacity, stop reading more pairs */
-            break;
+            if (!flux_vec_grow(p->arena, (void**)&v->u.object.pairs, &cap, v->u.object.count, sizeof(json_pair), 64)) {
+                json_error(p, "out of memory");
+                return NULL;
+            }
         }
         char *key = json_parse_string(p);
         if (!key) return NULL;
@@ -278,7 +282,7 @@ json_value* json_parse_value(json_parser *p)
     case '{': return json_parse_object(p);
     case '[': return json_parse_array(p);
     case 't':
-        if (strncmp(p->pos, "true", 4) == 0) {
+        if (strncmp(p->pos, "true", 4) == 0 && !isalnum((unsigned char)p->pos[4]) && p->pos[4] != '_') {
             json_value *v = (json_value*)flux_arena_alloc(p->arena, sizeof(json_value));
             if (!v) return NULL;
             v->kind = JSON_BOOL;
@@ -289,7 +293,7 @@ json_value* json_parse_value(json_parser *p)
         json_error(p, "Unexpected token at line %d", p->line);
         return NULL;
     case 'f':
-        if (strncmp(p->pos, "false", 5) == 0) {
+        if (strncmp(p->pos, "false", 5) == 0 && !isalnum((unsigned char)p->pos[5]) && p->pos[5] != '_') {
             json_value *v = (json_value*)flux_arena_alloc(p->arena, sizeof(json_value));
             if (!v) return NULL;
             v->kind = JSON_BOOL;
@@ -300,7 +304,7 @@ json_value* json_parse_value(json_parser *p)
         json_error(p, "Unexpected token at line %d", p->line);
         return NULL;
     case 'n':
-        if (strncmp(p->pos, "null", 4) == 0) {
+        if (strncmp(p->pos, "null", 4) == 0 && !isalnum((unsigned char)p->pos[4]) && p->pos[4] != '_') {
             json_value *v = (json_value*)flux_arena_alloc(p->arena, sizeof(json_value));
             if (!v) return NULL;
             v->kind = JSON_NULL;
@@ -333,6 +337,11 @@ json_value* json_parse(const char *input, flux_arena *arena, flux_error *err)
     p.error = err;
 
     json_value *v = json_parse_value(&p);
+    json_skip_ws(&p);
+    if (v && *p.pos != '\0') {
+        json_error(&p, "trailing data after top-level JSON value");
+        return NULL;
+    }
     if (v && p.error && p.error->status != FLUX_OK) {
         return NULL;
     }

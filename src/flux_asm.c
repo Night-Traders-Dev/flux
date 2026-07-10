@@ -274,13 +274,21 @@ static int asm_parse_wave(asm_parser *p)
         asm_skip_ws(p);
         if (*p->pos != ')') {
             int np = 0;
-            flux_wave_param params[16];
+            flux_wave_param *params = NULL;
+            size_t param_cap = 0;
             while (1) {
                 char *pname = asm_parse_ident(p);
                 if (!pname) { asm_error(p, "expected parameter name"); return 0; }
                 if (!asm_expect(p, ':')) { asm_error(p, "expected ':' after parameter name"); return 0; }
                 flux_type pt;
                 if (!asm_parse_type_ref(p, &pt)) { asm_error(p, "expected parameter type"); return 0; }
+
+                if (np >= param_cap) {
+                    if (!flux_vec_grow(p->arena, (void**)&params, &param_cap, np, sizeof(flux_wave_param), 16)) {
+                        asm_error(p, "out of memory");
+                        return 0;
+                    }
+                }
                 params[np].reg = pname;
                 params[np].type = pt;
                 np++;
@@ -293,8 +301,7 @@ static int asm_parse_wave(asm_parser *p)
                 else break;
             }
             w->num_params = np;
-            w->params = (flux_wave_param*)flux_arena_alloc(p->arena, np * sizeof(flux_wave_param));
-            if (w->params) memcpy(w->params, params, np * sizeof(flux_wave_param));
+            w->params = params;
         }
         if (!asm_expect(p, ')')) { asm_error(p, "expected ')'"); return 0; }
     }
@@ -318,17 +325,17 @@ static int asm_parse_instruction(asm_parser *p, flux_instruction *inst)
     inst->opcode = opcode;
 
     /* Parse comma-separated operands */
-    int cap = 8;
     int count = 0;
-    flux_operand *ops = (flux_operand*)flux_arena_alloc(p->arena, cap * sizeof(flux_operand));
-    if (!ops) { asm_error(p, "out of memory"); return 0; }
+    flux_operand *ops = NULL;
+    size_t cap = 0;
 
     asm_skip_ws(p);
     while (*p->pos && *p->pos != '\n' && *p->pos != '#' && *p->pos != ';') {
         if (count >= cap) {
-            cap *= 2;
-            /* Just skip if too many operands */
-            break;
+            if (!flux_vec_grow(p->arena, (void**)&ops, &cap, count, sizeof(flux_operand), 8)) {
+                asm_error(p, "out of memory"); 
+                return 0;
+            }
         }
         if (!asm_parse_operand(p, &ops[count])) break;
         count++;
@@ -364,10 +371,8 @@ flux_status flux_asm_parse(const char *asm_text, flux_module *mod, flux_error *e
     p.current_wave = NULL;
     p.current_unit = NULL;
 
-    /* Allocate reasonable starting capacity for units */
-    mod->units = (flux_unit*)flux_arena_alloc(p.arena, 64 * sizeof(flux_unit));
-    if (!mod->units) { flux_error_set(err, FLUX_ERR_OOM, 0, 0, "out of memory"); return FLUX_ERR_OOM; }
-    memset(mod->units, 0, 64 * sizeof(flux_unit));
+    mod->units = NULL;
+    mod->num_units = 0;
 
     while (*p.pos) {
         asm_skip_ws(&p);
@@ -394,8 +399,12 @@ flux_status flux_asm_parse(const char *asm_text, flux_module *mod, flux_error *e
                 char *uname = asm_parse_ident(&p);
                 if (!uname) { asm_error(&p, "expected unit name"); return FLUX_ERR_PARSE; }
 
-                int ui = mod->num_units++;
-                if (ui >= 64) { asm_error(&p, "too many units"); return FLUX_ERR_PARSE; }
+                int ui = mod->num_units;
+                size_t unit_cap = mod->num_units;
+                if (!flux_vec_grow(p.arena, (void**)&mod->units, &unit_cap, mod->num_units, sizeof(flux_unit), 8)) {
+                    asm_error(&p, "out of memory"); return FLUX_ERR_PARSE;
+                }
+                mod->num_units++;
                 flux_unit *u = &mod->units[ui];
                 memset(u, 0, sizeof(flux_unit));
                 u->name = uname;
@@ -415,15 +424,19 @@ flux_status flux_asm_parse(const char *asm_text, flux_module *mod, flux_error *e
                         char ***target = is_uses ? &u->uses : &u->defs;
                         int *tcount = is_uses ? &u->num_uses : &u->num_defs;
                         /* Parse register list */
-                        int cap = 8;
                         int cnt = 0;
-                        *target = (char**)flux_arena_alloc(p.arena, cap * sizeof(char*));
+                        size_t cap = 0;
                         while (1) {
                             asm_skip_ws(&p);
                             if (*p.pos == ',' || *p.pos == ':' || *p.pos == '\n' || *p.pos == '#') break;
                             char *rname = asm_parse_ident(&p);
                             if (!rname) break;
-                            if (cnt >= cap) { cap *= 2; }
+                            if (cnt >= (int)cap) {
+                                if (!flux_vec_grow(p.arena, (void**)target, &cap, cnt, sizeof(char*), 8)) {
+                                    asm_error(&p, "out of memory");
+                                    return FLUX_ERR_PARSE;
+                                }
+                            }
                             (*target)[cnt++] = rname;
                             asm_skip_ws(&p);
                             if (*p.pos == ',') { p.pos++; p.column++; }
@@ -459,13 +472,13 @@ flux_status flux_asm_parse(const char *asm_text, flux_module *mod, flux_error *e
                     if (!*p.pos || *p.pos == '.' || *p.pos == '\n') break;
                     if (*p.pos == '#' || *p.pos == ';') { asm_skip_line(&p); continue; }
 
-                    int ii = u->num_instructions++;
-                    flux_instruction *new_insts = (flux_instruction*)flux_arena_alloc(p.arena,
-                            u->num_instructions * sizeof(flux_instruction));
-                    if (u->instructions && u->num_instructions > 1) {
-                        memcpy(new_insts, u->instructions, (u->num_instructions - 1) * sizeof(flux_instruction));
+                    int ii = u->num_instructions;
+                    size_t inst_cap = u->num_instructions;
+                    if (!flux_vec_grow(p.arena, (void**)&u->instructions, &inst_cap, u->num_instructions, sizeof(flux_instruction), 4)) {
+                        asm_error(&p, "out of memory"); 
+                        break;
                     }
-                    u->instructions = new_insts;
+                    u->num_instructions++;
                     if (!asm_parse_instruction(&p, &u->instructions[ii])) {
                         u->num_instructions--;
                         break;
@@ -500,15 +513,20 @@ flux_status flux_asm_parse(const char *asm_text, flux_module *mod, flux_error *e
                 asm_skip_ws(&p);
                 if (*p.pos == '(') {
                     p.pos++; p.column++;
-                    int cap = 8;
                     int cnt = 0;
-                    d->regs = (char**)flux_arena_alloc(p.arena, cap * sizeof(char*));
+                    size_t cap = 0;
+                    d->regs = NULL;
                     while (1) {
                         asm_skip_ws(&p);
                         if (*p.pos == ')') break;
                         char *rn = asm_parse_ident(&p);
                         if (!rn) break;
-                        if (cnt >= cap) cap *= 2;
+                        if (cnt >= (int)cap) {
+                            if (!flux_vec_grow(p.arena, (void**)&d->regs, &cap, cnt, sizeof(char*), 8)) {
+                                asm_error(&p, "out of memory");
+                                return FLUX_ERR_PARSE;
+                            }
+                        }
                         d->regs[cnt++] = rn;
                         asm_skip_ws(&p);
                         if (*p.pos == ',') { p.pos++; p.column++; }
@@ -577,21 +595,23 @@ flux_status flux_asm_parse(const char *asm_text, flux_module *mod, flux_error *e
             if (*p.pos == ':') {
                 /* It's a unit label */
                 p.pos++; p.column++;
-                int ui = mod->num_units++;
-                if (ui >= 64) { asm_error(&p, "too many units"); return FLUX_ERR_PARSE; }
+                int ui = mod->num_units;
+                size_t unit_cap = mod->num_units;
+                if (!flux_vec_grow(p.arena, (void**)&mod->units, &unit_cap, mod->num_units, sizeof(flux_unit), 8)) {
+                    asm_error(&p, "out of memory"); return FLUX_ERR_PARSE;
+                }
+                mod->num_units++;
                 flux_unit *u = &mod->units[ui];
                 memset(u, 0, sizeof(flux_unit));
                 u->name = ident;
                 u->wave = p.current_wave ? flux_arena_strdup(p.arena, p.current_wave->name) : NULL;
                 if (p.current_wave) {
-                    int wui = p.current_wave->num_units++;
-                    char **new_units = (char**)flux_arena_alloc(p.arena,
-                        p.current_wave->num_units * sizeof(char*));
-                    if (p.current_wave->units && p.current_wave->num_units > 1) {
-                        memcpy(new_units, p.current_wave->units,
-                            (p.current_wave->num_units - 1) * sizeof(char*));
+                    int wui = p.current_wave->num_units;
+                    size_t wucap = p.current_wave->num_units;
+                    if (!flux_vec_grow(p.arena, (void**)&p.current_wave->units, &wucap, p.current_wave->num_units, sizeof(char*), 8)) {
+                        asm_error(&p, "out of memory"); return FLUX_ERR_PARSE;
                     }
-                    p.current_wave->units = new_units;
+                    p.current_wave->num_units++;
                     p.current_wave->units[wui] = ident;
                 }
                 p.current_unit = u;
@@ -603,13 +623,14 @@ flux_status flux_asm_parse(const char *asm_text, flux_module *mod, flux_error *e
                     if (!*p.pos || *p.pos == '.' || *p.pos == '\n') break;
                     if (*p.pos == '#' || *p.pos == ';') { asm_skip_line(&p); continue; }
 
-                    int ii = u->num_instructions++;
-                    flux_instruction *new_insts = (flux_instruction*)flux_arena_alloc(p.arena,
-                            u->num_instructions * sizeof(flux_instruction));
-                    if (u->instructions && u->num_instructions > 1) {
-                        memcpy(new_insts, u->instructions, (u->num_instructions - 1) * sizeof(flux_instruction));
+                    int ii = u->num_instructions;
+                    size_t inst_cap = u->num_instructions;
+                    if (!flux_vec_grow(p.arena, (void**)&u->instructions, &inst_cap, u->num_instructions, sizeof(flux_instruction), 4)) {
+                        asm_error(&p, "out of memory"); 
+                        u->num_instructions--;
+                        break;
                     }
-                    u->instructions = new_insts;
+                    u->num_instructions++;
                     if (!asm_parse_instruction(&p, &u->instructions[ii])) {
                         u->num_instructions--;
                         break;

@@ -9,10 +9,23 @@
 #include <ctype.h>
 #include <math.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 /*===========================================================================
- * Dynamic array helpers (arena-backed)
- *===========================================================================*/
+  * Vector/grow helper - arena-backed array with growth capability
+  *===========================================================================*/
+bool flux_vec_grow(
+    flux_arena *arena,
+    void **items,
+    size_t *capacity,
+    size_t count,
+    size_t element_size,
+    size_t minimum_capacity
+);
+
+/*===========================================================================
+  * Dynamic array helpers (arena-backed)
+  *===========================================================================*/
 #define DA_INIT(cap) do { (cap) = 0; } while(0)
 #define DA_APPEND(a, arena, elem) do {                     \
     unsigned long _da_idx__ = (a).count++;                  \
