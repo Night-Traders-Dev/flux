@@ -18,15 +18,20 @@ a *dependency graph* that describes how data moves between them.
 
 ## Current Status
 
-- **P0 Memory Safety & Parser Safety**: Complete. Arena-backed `flux_vec_grow()`
-  with overflow checks. Removed artificial 64-unit limit. All dynamic arrays in
-  FluxASM parser use safe growth.
-- **P1 Semantic Validation**: Mostly complete. Type equality, dependency
-  validation, and cycle detection implemented. 6 remaining test failures in
-  JSON parsing of multi-string literal test inputs.
-- **P2-P4 API & Simulator**: Core API stable. Reference simulator implemented.
-  JSON parser column tracking fixed.
-- **Test Suite**: 22/28 tests passing.
+- **P0-P4 Complete**: All stabilization fixes implemented. Arena-backed `flux_vec_grow()` with overflow checks. Removed artificial 64-unit limit. JSON parser column tracking fixed. Validator includes cycle detection, duplicate wave detection, and missing name checks. Simulator resolves entry point start_wave correctly.
+- **Test Suite**: 28/28 tests passing.
+
+## Documentation
+
+Detailed documentation for each component is available in [`docs/`](docs/):
+
+- [Arena Allocator](docs/arena.md) — Region-based memory allocator
+- [Type System](docs/type-system.md) — Scalar, vector, predicate, and effect types
+- [JSON Parser and Serializer](docs/json.md) — JSON value tree, parsing, and serialization
+- [FluxIR](docs/fluxir.md) — Canonical JSON intermediate representation
+- [FluxASM](docs/fluxasm.md) — Human-readable assembly language
+- [Validator](docs/validator.md) — Structural, type, dependency, and control-safety checks
+- [Reference Simulator](docs/simulator.md) — Host-process dataflow interpreter
 
 ## Quick Start
 
@@ -79,6 +84,14 @@ Produces `build/libflux.a` (library), `build/flux` (CLI), and `build/test_flux`
 │   ├── main.c           # CLI entry point
 │   └── test_flux.c      # Test suite (arena, type, JSON, IR, ASM, validation)
 ├── docs/
+│   ├── index.md                    # Documentation index
+│   ├── arena.md                    # Arena allocator
+│   ├── type-system.md              # Type system
+│   ├── json.md                     # JSON parser/serializer
+│   ├── fluxir.md                   # FluxIR module format
+│   ├── fluxasm.md                  # FluxASM assembly language
+│   ├── validator.md                # Validation engine
+│   ├── simulator.md                # Reference simulator
 │   └── FluxASM_FluxIR_Technical_Specification_v1.1_Minimalist.pdf
 ├── Makefile
 └── README.md
