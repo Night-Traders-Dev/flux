@@ -51,6 +51,11 @@ flux_status flux_validate(const flux_module *mod, flux_validation *val, flux_err
 
     /* 8.1 Structural Rules */
 
+    /* Module must have a name */
+    if (!mod->name || mod->name[0] == '\0') {
+        val_printf(val, arena, "Structural: module has no name");
+    }
+
     /* All waves referenced must exist */
     /* Check units reference valid waves */
     for (int i = 0; i < mod->num_units; i++) {
@@ -75,6 +80,16 @@ flux_status flux_validate(const flux_module *mod, flux_validation *val, flux_err
             if (flux_find_unit(mod, mod->waves[wi].units[j]) < 0) {
                 val_printf(val, arena, "Structural: wave '%s' references unknown unit '%s'",
                           mod->waves[wi].name, mod->waves[wi].units[j]);
+            }
+        }
+    }
+
+    /* Wave names must be unique */
+    for (int i = 0; i < mod->num_waves; i++) {
+        for (int j = i + 1; j < mod->num_waves; j++) {
+            if (strcmp(mod->waves[i].name, mod->waves[j].name) == 0) {
+                val_printf(val, arena, "Structural: duplicate wave name '%s'",
+                          mod->waves[i].name);
             }
         }
     }
@@ -197,6 +212,83 @@ flux_status flux_validate(const flux_module *mod, flux_validation *val, flux_err
         }
     }
 
+    /* 8.3.1 Cycle Detection */
+    /* Build adjacency list from deps and detect cycles using DFS */
+    if (mod->num_deps > 0 && mod->num_units > 0) {
+        int *visited = (int*)flux_arena_alloc(arena, mod->num_units * sizeof(int));
+        int *rec_stack = (int*)flux_arena_alloc(arena, mod->num_units * sizeof(int));
+        if (visited && rec_stack) {
+            memset(visited, 0, mod->num_units * sizeof(int));
+            memset(rec_stack, 0, mod->num_units * sizeof(int));
+
+            /* Build adjacency: unit index -> list of target unit indices */
+            int **adj = (int**)flux_arena_alloc(arena, mod->num_units * sizeof(int*));
+            int *adj_count = (int*)flux_arena_alloc(arena, mod->num_units * sizeof(int));
+            if (adj && adj_count) {
+                memset(adj_count, 0, mod->num_units * sizeof(int));
+                for (int di = 0; di < mod->num_deps; di++) {
+                    int src = flux_find_unit(mod, mod->deps[di].from);
+                    int dst = flux_find_unit(mod, mod->deps[di].to);
+                    if (src >= 0 && dst >= 0) {
+                        adj_count[src]++;
+                    }
+                }
+                for (int i = 0; i < mod->num_units; i++) {
+                    if (adj_count[i] > 0) {
+                        adj[i] = (int*)flux_arena_alloc(arena, adj_count[i] * sizeof(int));
+                        adj_count[i] = 0;
+                    }
+                }
+                for (int di = 0; di < mod->num_deps; di++) {
+                    int src = flux_find_unit(mod, mod->deps[di].from);
+                    int dst = flux_find_unit(mod, mod->deps[di].to);
+                    if (src >= 0 && dst >= 0) {
+                        adj[src][adj_count[src]++] = dst;
+                    }
+                }
+
+                /* DFS cycle detection */
+                int has_cycle = 0;
+                for (int i = 0; i < mod->num_units && !has_cycle; i++) {
+                    if (!visited[i]) {
+                        /* Simple iterative DFS to detect cycle */
+                        int *stack = (int*)flux_arena_alloc(arena, mod->num_units * sizeof(int));
+                        int *stack_adj_idx = (int*)flux_arena_alloc(arena, mod->num_units * sizeof(int));
+                        if (stack && stack_adj_idx) {
+                            int sp = 0;
+                            stack[sp] = i;
+                            stack_adj_idx[sp] = 0;
+                            rec_stack[i] = 1;
+                            while (sp >= 0) {
+                                int u = stack[sp];
+                                if (stack_adj_idx[sp] < adj_count[u]) {
+                                    int v = adj[u][stack_adj_idx[sp]++];
+                                    if (rec_stack[v]) {
+                                        has_cycle = 1;
+                                        break;
+                                    }
+                                    if (!visited[v]) {
+                                        sp++;
+                                        stack[sp] = v;
+                                        stack_adj_idx[sp] = 0;
+                                        rec_stack[v] = 1;
+                                    }
+                                } else {
+                                    rec_stack[u] = 0;
+                                    visited[u] = 1;
+                                    sp--;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (has_cycle) {
+                    val_printf(val, arena, "Structural: dependency graph contains a cycle");
+                }
+            }
+        }
+    }
+
     /* 8.4 Effect Safety */
     /* Track effect register definitions through bind/bind_memory and e_barrier/e_fence chains */
     for (int ui = 0; ui < mod->num_units; ui++) {
@@ -272,16 +364,20 @@ flux_status flux_validate(const flux_module *mod, flux_validation *val, flux_err
                                 }
                                 /* Check that branch target is in control graph */
                                 int in_cg = 0;
-                                for (int ci = 0; ci < mod->num_control_edges; ci++) {
-                                    if (strcmp(mod->control_edges[ci].from, w->name) == 0) {
-                                        for (int cj = 0; cj < mod->control_edges[ci].num_to; cj++) {
-                                            if (strcmp(mod->control_edges[ci].to[cj], op->u.wave.wave_name) == 0) {
-                                                in_cg = 1;
-                                                break;
+                                if (mod->num_control_edges > 0) {
+                                    for (int ci = 0; ci < mod->num_control_edges; ci++) {
+                                        if (strcmp(mod->control_edges[ci].from, w->name) == 0) {
+                                            for (int cj = 0; cj < mod->control_edges[ci].num_to; cj++) {
+                                                if (strcmp(mod->control_edges[ci].to[cj], op->u.wave.wave_name) == 0) {
+                                                    in_cg = 1;
+                                                    break;
+                                                }
                                             }
                                         }
+                                        if (in_cg) break;
                                     }
-                                    if (in_cg) break;
+                                } else {
+                                    in_cg = 1;
                                 }
                                 if (!in_cg) {
                                     val_printf(val, arena, "Control: branch from '%s' to '%s' not in control_graph",

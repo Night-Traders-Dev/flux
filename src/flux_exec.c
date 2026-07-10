@@ -228,10 +228,23 @@ flux_status flux_sim_run(flux_sim_state *s, const char *entry,
     }
     flux_error_init(err);
 
-    /* Find entry wave */
-    int wi = flux_find_wave(s->mod, entry);
+    /* Find entry point and its start wave */
+    int ep_idx = -1;
+    for (int i = 0; i < s->mod->num_entry_points; i++) {
+        if (strcmp(s->mod->entry_points[i].name, entry) == 0) {
+            ep_idx = i;
+            break;
+        }
+    }
+    if (ep_idx < 0) {
+        flux_error_set(err, FLUX_ERR_NOT_FOUND, 0, 0, "entry point '%s' not found", entry);
+        return FLUX_ERR_NOT_FOUND;
+    }
+
+    const char *start_wave_name = s->mod->entry_points[ep_idx].start_wave;
+    int wi = flux_find_wave(s->mod, start_wave_name);
     if (wi < 0) {
-        flux_error_set(err, FLUX_ERR_NOT_FOUND, 0, 0, "entry wave '%s' not found", entry);
+        flux_error_set(err, FLUX_ERR_NOT_FOUND, 0, 0, "entry wave '%s' not found", start_wave_name);
         return FLUX_ERR_NOT_FOUND;
     }
 

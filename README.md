@@ -1,13 +1,13 @@
 # Flux — FluxASM / FluxIR Runtime
 
 Pure C99 implementation of the FluxASM assembly language and FluxIR intermediate
-representation, with zero external dependencies.  Fully hardware/architecture
+representation, with zero external dependencies. Fully hardware/architecture
 agnostic — runs on anything with a C99 compiler.
 
 ## What is Flux?
 
 Flux is a **dataflow-oriented intermediate representation** designed for
-heterogeneous compute pipelines.  A Flux program is a set of *waves* (execution
+heterogeneous compute pipelines. A Flux program is a set of *waves* (execution
 stages) containing *units* (basic blocks of dataflow instructions), connected by
 a *dependency graph* that describes how data moves between them.
 
@@ -15,6 +15,18 @@ a *dependency graph* that describes how data moves between them.
 - **FluxIR** — canonical JSON representation (lossless, round-trips with ASM)
 - **Reference simulator** — executes Flux programs in the host process
 - **Validator** — structural, type, dependency, effect, and control-safety checks
+
+## Current Status
+
+- **P0 Memory Safety & Parser Safety**: Complete. Arena-backed `flux_vec_grow()`
+  with overflow checks. Removed artificial 64-unit limit. All dynamic arrays in
+  FluxASM parser use safe growth.
+- **P1 Semantic Validation**: Mostly complete. Type equality, dependency
+  validation, and cycle detection implemented. 6 remaining test failures in
+  JSON parsing of multi-string literal test inputs.
+- **P2-P4 API & Simulator**: Core API stable. Reference simulator implemented.
+  JSON parser column tracking fixed.
+- **Test Suite**: 22/28 tests passing.
 
 ## Quick Start
 
@@ -61,7 +73,8 @@ Produces `build/libflux.a` (library), `build/flux` (CLI), and `build/test_flux`
 │   ├── flux_ir.c        # FluxIR (JSON) ⇄ flux_module conversion
 │   ├── flux_asm.c       # FluxASM parser / pretty-printer
 │   ├── flux_val.c       # Structural, type, dependency, effect, control validator
-│   └── flux_exec.c      # Reference dataflow simulator
+│   ├── flux_exec.c      # Reference dataflow simulator
+│   └── flux_vec.h       # Dynamic array helpers (arena-backed)
 ├── testing/
 │   ├── main.c           # CLI entry point
 │   └── test_flux.c      # Test suite (arena, type, JSON, IR, ASM, validation)

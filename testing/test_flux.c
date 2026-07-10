@@ -427,10 +427,13 @@ static void test_sim_dag(void)
         "\"units\": ["
             "{\"name\": \"U0\", \"wave\": \"W0\", \"uses\": [], \"defs\": [\"s0\"], \"instructions\": ["
                 "{\"opcode\": \"mov.s\", \"operands\": [{\"kind\": \"reg\", \"name\": \"s0\"}, {\"kind\": \"imm\", \"value\": 42}]}"
-            "],"
+            "]"
+            "}"
+        ","
             "{\"name\": \"U1\", \"wave\": \"W0\", \"uses\": [\"s0\"], \"defs\": [], \"instructions\": ["
                 "{\"opcode\": \"mov.s\", \"operands\": [{\"kind\": \"reg\", \"name\": \"s1\"}, {\"kind\": \"reg\", \"name\": \"s0\"}]}"
             "]"
+            "}"
         "],"
         "\"deps\": ["
             "{\"from\": \"U0\", \"to\": \"U1\", \"regs\": [\"s0\"]}"
@@ -864,7 +867,7 @@ static void test_ir_roundtrip(void)
     ASSERT(sim != NULL, "sim created");
 
     int64_t sim_args[2] = {100, 5};
-    status = flux_sim_run(sim, "W0", 2, sim_args, &err);
+    status = flux_sim_run(sim, "main", 2, sim_args, &err);
     ASSERT(status == FLUX_OK, "simulation run");
 
     flux_sim_destroy(sim);
@@ -1039,38 +1042,7 @@ static void test_vector_json_roundtrip(void)
 static void test_control_flow(void)
 {
     const char *json_input =
-        "{"
-        "\"module\": {"
-        "\"name\": \"ctrl_test\","
-        "\"version\": \"1.1\","
-        "\"entry_points\": [{\"name\": \"main\", \"params\": [], \"returns\": [], \"start_wave\": \"W0\"}],"
-        "\"waves\": ["
-            "{\"name\": \"W0\", \"params\": [], \"units\": [\"U0\"]},"
-            "{\"name\": \"W1\", \"params\": [{\"reg\": \"s0\", \"type\": \"i32\"}], \"units\": [\"U1\"]}"
-        "],"
-        "\"units\": ["
-            "{\"name\": \"U0\", \"wave\": \"W0\", \"uses\": [], \"defs\": [], \"instructions\": ["
-                "{\"opcode\": \"branch\", \"operands\": ["
-                    "{\"kind\": \"reg\", \"name\": \"p0\"},"
-                    "{\"kind\": \"wave\", \"name\": \"W0\", \"args\": {}},"
-                    "{\"kind\": \"wave\", \"name\": \"W1\", \"args\": {\"s0\": \"s1\"}}"
-                "]}"
-            "},"
-            "{\"name\": \"U1\", \"wave\": \"W1\", \"uses\": [\"s0\"], \"defs\": [], \"instructions\": ["
-                "{\"opcode\": \"end\", \"operands\": []}"
-            "]"
-        "],"
-        "\"deps\": [],"
-        "\"registers\": ["
-            "{\"name\": \"p0\", \"class\": \"predicate\", \"type\": \"pred\"},"
-            "{\"name\": \"s0\", \"class\": \"scalar\", \"type\": \"i32\"},"
-            "{\"name\": \"s1\", \"class\": \"scalar\", \"type\": \"i32\"}"
-        "],"
-        "\"types\": ["
-            "{\"name\": \"i32\", \"kind\": \"scalar\", \"bits\": 32, \"sign\": \"signed\"},"
-            "{\"name\": \"pred\", \"kind\": \"predicate\"}"
-        "]"
-        "}}";
+        "{\"module\":{\"name\":\"ctrl_test\",\"version\":\"1.1\",\"entry_points\":[{\"name\":\"main\",\"params\":[],\"returns\":[],\"start_wave\":\"W0\"}],\"waves\":[{\"name\":\"W0\",\"params\":[],\"units\":[\"U0\"]},{\"name\":\"W1\",\"params\":[{\"reg\":\"s0\",\"type\":\"i32\"}],\"units\":[\"U1\"]}],\"units\":[{\"name\":\"U0\",\"wave\":\"W0\",\"uses\":[],\"defs\":[],\"instructions\":[{\"opcode\":\"branch\",\"operands\":[{\"kind\":\"reg\",\"name\":\"p0\"},{\"kind\":\"wave\",\"name\":\"W0\",\"args\":{}},{\"kind\":\"wave\",\"name\":\"W1\",\"args\":{\"s0\":\"s1\"}}]}]},{\"name\":\"U1\",\"wave\":\"W1\",\"uses\":[\"s0\"],\"defs\":[],\"instructions\":[{\"opcode\":\"end\",\"operands\":[]}]}],\"deps\":[],\"registers\":[{\"name\":\"p0\",\"class\":\"predicate\",\"type\":\"pred\"},{\"name\":\"s0\",\"class\":\"scalar\",\"type\":\"i32\"},{\"name\":\"s1\",\"class\":\"scalar\",\"type\":\"i32\"}],\"types\":[{\"name\":\"i32\",\"kind\":\"scalar\",\"bits\":32,\"sign\":\"signed\"},{\"name\":\"pred\",\"kind\":\"predicate\"}]}}";
 
     flux_module *mod = flux_module_create("ctrl_test");
     ASSERT(mod != NULL, "module created");
@@ -1105,11 +1077,12 @@ static void test_effect_tokens(void)
         "],"
         "\"units\": ["
             "{\"name\": \"U0\", \"wave\": \"W0\", \"uses\": [\"e0\"], \"defs\": [\"e1\"], \"instructions\": ["
-                "{\"opcode\": \"bindmemory\", \"operands\": [{\"kind\": \"reg\", \"name\": \"e0\"}, {\"kind\": \"ref\", \"type\": \"memory_region\", \"name\": \"mem0\"}]},"
+                "{\"opcode\": \"bind_memory\", \"operands\": [{\"kind\": \"reg\", \"name\": \"e0\"}, {\"kind\": \"ref\", \"type\": \"memory_region\", \"name\": \"mem0\"}]},"
                 "{\"opcode\": \"ld.s\", \"operands\": [{\"kind\": \"reg\", \"name\": \"s0\"}, {\"kind\": \"reg\", \"name\": \"e0\"}, {\"kind\": \"imm\", \"value\": 0}]},"
                 "{\"opcode\": \"st.s\", \"operands\": [{\"kind\": \"reg\", \"name\": \"e1\"}, {\"kind\": \"imm\", \"value\": 0}, {\"kind\": \"reg\", \"name\": \"s0\"}]},"
                 "{\"opcode\": \"efence\", \"operands\": [{\"kind\": \"reg\", \"name\": \"e1\"}]}"
             "]"
+            "}"
         "],"
         "\"deps\": [],"
         "\"registers\": ["
